@@ -1,0 +1,55 @@
+name: Sync upstream
+
+# Keeps this fork's `main` up to date with upstream `addyosmani/agent-skills`.
+# Daily schedule plus manual trigger. Merge-based only: never force-pushes,
+# and a failed merge fails the workflow so conflicts are resolved by hand.
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily at 03:17 UTC (off the top of the hour to dodge runner contention)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge upstream main into fork main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork with full history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # full history so the upstream merge has real ancestry
+          persist-credentials: true # GITHUB_TOKEN stays configured for the push step
+
+      - name: Configure Git (GitHub Actions bot identity)
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/addyosmani/agent-skills.git
+
+      - name: Fetch upstream (full history)
+        run: git fetch upstream --prune --no-tags
+
+      - name: Merge upstream/main into main
+        run: git merge upstream/main --no-edit
+
+      - name: Push to origin (no force)
+        run: git push origin main
+
+      - name: Report synced HEAD
+        if: success()
+        run: git log --oneline -5
+
+      - name: Abort conflicted merge (job stays failed)
+        if: failure()
+        run: git merge --abort || true
